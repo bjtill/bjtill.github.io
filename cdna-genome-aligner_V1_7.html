@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cDNA to Genome Aligner</title>
+        <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'><path fill='%231f618d' d='M480 64C497.7 64 512 78.3 512 96C512 153.8 487.6 200.8 454.6 240.5C430.5 269.4 400.8 295.6 371 320C400.8 344.5 430.5 370.6 454.6 399.5C487.6 439.1 512 486.2 512 544C512 561.7 497.7 576 480 576C462.3 576 448 561.7 448 544L192 544C192 561.7 177.7 576 160 576C142.3 576 128 561.7 128 544C128 486.2 152.4 439.2 185.4 399.5C209.5 370.6 239.2 344.5 269 320C239.2 295.5 209.5 269.4 185.4 240.5C152.4 200.8 128 153.8 128 96C128 78.3 142.3 64 160 64C177.7 64 192 78.3 192 96L448 96C448 78.3 462.3 64 480 64z'/></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .lucide {
+            width: 1em;
+            height: 1em;
+            display: inline-block;
+            vertical-align: middle;
+            
+        }
+        input[type="file"] {
+    	    color: transparent;
+	}
+	input[type="file"]::-webkit-file-upload-button {
+    	    color: black;
+	}
+	input[type="file"]::file-selector-button {
+    	    color: black;
+	}
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+
+    <script>
+        let state = {
+            cdnaFile: null,
+            genomeFile: null,
+            maxGaps: 0,
+            maxMismatches: 0,
+            onlyMajority: true,
+            minAlignmentLen: 0,
+            annotatedSeq: '',
+            logText: '',
+            isProcessing: false,
+            genomeHeader: '',
+            matches: [],
+            labelOption: 'both',
+            imageFormat: 'png',
+            hasOverlap: false
+        };
+
+        function parseFasta(text) {
+            const lines = text.split('\n');
+            const header = lines[0].replace('>', '').trim();
+            const sequence = lines.slice(1).join('').replace(/\s/g, '').toUpperCase();
+            return { header, sequence };
+        }
+
+        function reverseComplement(seq) {
+            const complement = { 'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'N': 'N' };
+            return seq.split('').reverse().map(base => complement[base] || base).join('');
+        }
+
+        function findMatchesOrientation(cdna, genome, orientation) {
+            const matches = [];
+            const minMatchLen = 15;
+            let cdnaPos = 0;
+            let i = 0;
+
+            while (cdnaPos < cdna.length) {
+                const chunkSize = Math.min(minMatchLen, cdna.length - cdnaPos);
+                const chunk = cdna.substring(cdnaPos, cdnaPos + chunkSize);
+                let found = false;
+
+                for (let j = i; j <= genome.length - chunkSize; j++) {
+                    if (genome.substring(j, j + chunkSize) === chunk) {
+                        let matchStart = j;
+                        let matchEnd = j + chunkSize;
+                        let cdnaMatchEnd = cdnaPos + chunkSize;
+
+                        while (matchEnd < genome.length && 
+                               cdnaMatchEnd < cdna.length && 
+                               genome[matchEnd] === cdna[cdnaMatchEnd]) {
+                            matchEnd++;
+                            cdnaMatchEnd++;
+                        }
+
+                        matches.push({ start: matchStart + 1, end: matchEnd, orientation, gaps: 0, mismatches: 0 });
+                        i = matchEnd;
+                        cdnaPos = cdnaMatchEnd;
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    cdnaPos++;
+                }
+            }
+
+            return matches;
+        }
+
+        function findMatches(cdna, genome) {
+            let matches = [];
+            matches = matches.concat(findMatchesOrientation(cdna, genome, 'F'));
+            const cdnaRc = reverseComplement(cdna);
+            matches = matches.concat(findMatchesOrientation(cdnaRc, genome, 'R'));
+            matches.sort((a, b) => a.start - b.start);
+            return mergeOverlapping(matches);
+        }
+
+        function mergeOverlapping(matches) {
+            if (matches.length === 0) return [];
+            
+            const merged = [];
+            let current = { ...matches[0] };
+
+            for (let i = 1; i < matches.length; i++) {
+                const match = matches[i];
+                if (match.start <= current.end + 1 && match.orientation === current.orientation) {
+                    current.end = Math.max(current.end, match.end);
+                    current.gaps += match.gaps;
+                    current.mismatches += match.mismatches;
+                } else {
+                    merged.push(current);
+                    current = { ...match };
+                }
+            }
+            merged.push(current);
+            return merged;
+        }
+
+        function checkOverlaps(matches) {
+            for (let i = 0; i < matches.length - 1; i++) {
+                if (matches[i].end > matches[i + 1].start) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function createAnnotatedSequence(genome, matches) {
+            const annotated = genome.toLowerCase().split('');
+            matches.forEach(({ start, end }) => {
+                for (let i = start - 1; i < end; i++) {
+                    annotated[i] = genome[i].toUpperCase();
+                }
+            });
+            return annotated.join('');
+        }
+
+        function formatSequence(seq, width = 60) {
+            const lines = [];
+            for (let i = 0; i < seq.length; i += width) {
+                lines.push(seq.substring(i, i + width));
+            }
+            return lines.join('\n');
+        }
+
+        function filterMatches(matches) {
+            let filtered = matches.filter(m => (m.end - m.start) >= state.minAlignmentLen);
+            
+            if (state.onlyMajority && filtered.length > 0) {
+                const fCount = filtered.filter(m => m.orientation === 'F').length;
+                const rCount = filtered.filter(m => m.orientation === 'R').length;
+                const majorityOrientation = fCount > rCount ? 'F' : 'R';
+                filtered = filtered.filter(m => m.orientation === majorityOrientation);
+            }
+            
+            return filtered;
+        }
+
+        function createLogText(cdnaHeader, genomeHeader, matches, cdnaFileName, genomeFileName, hasOverlap) {
+            const now = new Date().toLocaleString();
+            let log = `cDNA to Genome Alignment Log\n`;
+            log += `Generated: ${now}\n`;
+            log += `${'='.repeat(70)}\n\n`;
+            log += `Input Files:\n`;
+            log += `  cDNA: ${cdnaFileName}\n`;
+            log += `  Genome: ${genomeFileName}\n\n`;
+            log += `Parameters:\n`;
+            log += `  Max Gaps: ${state.maxGaps}\n`;
+            log += `  Max Mismatches: ${state.maxMismatches}\n`;
+            log += `  Only Majority Orientation: ${state.onlyMajority ? 'Yes' : 'No'}\n`;
+            log += `  Minimum Alignment Length: ${state.minAlignmentLen} bp\n\n`;
+            
+            if (hasOverlap) {
+                log += `WARNING: Overlapping alignment positions detected!\n\n`;
+            }
+            
+            log += `Alignment of query ${cdnaHeader} with ${genomeHeader}\n`;
+            log += `${'-'.repeat(70)}\n`;
+            log += `${'Start'.padEnd(10)}${'End'.padEnd(10)}${'Orientation'.padEnd(15)}${'Gaps'.padEnd(10)}${'Mismatches'.padEnd(12)}\n`;
+            log += `${'-'.repeat(70)}\n`;
+
+            if (matches.length > 0) {
+                matches.forEach(({ start, end, orientation, gaps, mismatches }) => {
+                    log += `${start.toString().padEnd(10)}${end.toString().padEnd(10)}${orientation.padEnd(15)}${gaps.toString().padEnd(10)}${mismatches.toString().padEnd(12)}\n`;
+                });
+            } else {
+                log += `No matches found\n`;
+            }
+
+            log += `\n${'='.repeat(70)}\n`;
+            log += `Total exons found: ${matches.length}\n`;
+            if (matches.length > 0) {
+                const totalLength = matches.reduce((sum, m) => sum + (m.end - m.start), 0);
+                log += `Total exon length: ${totalLength} bp\n`;
+            }
+
+            return log;
+        }
+
+        function drawGeneModel(canvas, matches, genomeHeader, labelOption) {
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, width, height);
+            
+            if (matches.length === 0) {
+                ctx.fillStyle = 'black';
+                ctx.font = '16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('No alignments to display', width / 2, height / 2);
+                return;
+            }
+            
+            const padding = 80;
+            const topPadding = 60;
+            const bottomPadding = labelOption === 'positions' || labelOption === 'both' ? 40 : 20;
+            const exonHeight = 40;
+            const lineY = topPadding + exonHeight / 2;
+            
+            ctx.fillStyle = 'black';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(genomeHeader, width / 2, 25);
+            
+            const maxExonSize = Math.max(...matches.map(m => m.end - m.start + 1));
+            const totalSpan = matches[matches.length - 1].end - matches[0].start + 1;
+            const availableWidth = width - 2 * padding;
+            
+            // Check if we need a leading line
+            const hasLeadingLine = matches[0].start > 1;
+            
+            let segments = [];
+            
+            // Add leading line if first exon doesn't start at position 1
+            if (hasLeadingLine) {
+                segments.push({ type: 'leading', size: matches[0].start - 1 });
+            }
+            
+            for (let i = 0; i < matches.length; i++) {
+                segments.push({ type: 'exon', match: matches[i], index: i });
+                if (i < matches.length - 1) {
+                    const intronSize = matches[i + 1].start - matches[i].end;
+                    segments.push({ type: 'intron', size: intronSize, needsBreak: intronSize > 3 * maxExonSize });
+                }
+            }
+            
+            let totalUnits = 0;
+            segments.forEach(seg => {
+                if (seg.type === 'exon') {
+                    totalUnits += seg.match.end - seg.match.start + 1;
+                } else if (seg.type === 'leading') {
+                    totalUnits += Math.min(seg.size, 30);
+                } else {
+                    totalUnits += seg.needsBreak ? 20 : seg.size;
+                }
+            });
+            
+            const scale = availableWidth / totalUnits;
+            let currentX = padding;
+            
+            segments.forEach(seg => {
+                if (seg.type === 'leading') {
+                    const lineWidth = Math.min(seg.size, 30) * scale;
+                    ctx.strokeStyle = 'black';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(currentX, lineY);
+                    ctx.lineTo(currentX + lineWidth, lineY);
+                    ctx.stroke();
+                    
+                    currentX += lineWidth;
+                } else if (seg.type === 'exon') {
+                    const exonWidth = (seg.match.end - seg.match.start + 1) * scale;
+                    
+                    ctx.fillStyle = '#888888';
+                    ctx.fillRect(currentX, topPadding, exonWidth, exonHeight);
+                    ctx.strokeStyle = 'black';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(currentX, topPadding, exonWidth, exonHeight);
+                    
+                    if (labelOption === 'exons' || labelOption === 'both') {
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 14px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText((seg.index + 1).toString(), currentX + exonWidth / 2, lineY);
+                    }
+                    
+		    if (labelOption === 'positions' || labelOption === 'both') {
+    			ctx.fillStyle = 'black';
+    			ctx.font = '11px Arial';
+    			ctx.textAlign = 'left';
+    			ctx.textBaseline = 'middle';
+    
+   			 // Start position - always at bottom
+    			ctx.save();
+    			ctx.translate(currentX, topPadding + exonHeight + 5);
+    			ctx.rotate(Math.PI / 4);
+    			ctx.fillText(seg.match.start.toString(), 0, 0);
+    			ctx.restore();
+    
+    			// End position - always at top
+    			ctx.save();
+    			ctx.translate(currentX + exonWidth, topPadding - 5);
+    			ctx.rotate(-Math.PI / 4);
+    			ctx.fillText(seg.match.end.toString(), 0, 0);
+    			ctx.restore();
+		    }                    
+
+                    currentX += exonWidth;
+                } else {
+                    const intronWidth = seg.needsBreak ? 20 * scale : seg.size * scale;
+                    
+                    if (seg.needsBreak) {
+                        const lineWidth = intronWidth / 2 - 10;
+                        ctx.strokeStyle = 'black';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(currentX, lineY);
+                        ctx.lineTo(currentX + lineWidth, lineY);
+                        ctx.stroke();
+                        
+                        ctx.fillStyle = 'black';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText('//', currentX + intronWidth / 2, lineY);
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(currentX + intronWidth - lineWidth, lineY);
+                        ctx.lineTo(currentX + intronWidth, lineY);
+                        ctx.stroke();
+                    } else {
+                        ctx.strokeStyle = 'black';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(currentX, lineY);
+                        ctx.lineTo(currentX + intronWidth, lineY);
+                        ctx.stroke();
+                    }
+                    
+                    currentX += intronWidth;
+                }
+            });
+        }
+
+        function downloadCanvas(format) {
+            const canvas = document.getElementById('geneModelCanvas');
+            if (!canvas) return;
+            
+            if (format === 'svg') {
+                alert('SVG export would require a different rendering approach. PNG format is recommended.');
+                return;
+            }
+            
+            canvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `gene_model.${format}`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }, `image/${format}`);
+        }
+
+        function handleFileRead(file, fileType) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                state[fileType] = { name: file.name, content: e.target.result };
+                render();
+            };
+            reader.readAsText(file);
+        }
+
+        function processAlignment() {
+            if (!state.cdnaFile || !state.genomeFile) {
+                alert('Please upload both cDNA and genome files');
+                return;
+            }
+
+            state.isProcessing = true;
+            render();
+
+            setTimeout(() => {
+                const cdna = parseFasta(state.cdnaFile.content);
+                const genome = parseFasta(state.genomeFile.content);
+
+                let matches = findMatches(cdna.sequence, genome.sequence);
+                matches = filterMatches(matches);
+                
+                const hasOverlap = checkOverlaps(matches);
+                const annotated = createAnnotatedSequence(genome.sequence, matches);
+                const log = createLogText(cdna.header, genome.header, matches, state.cdnaFile.name, state.genomeFile.name, hasOverlap);
+
+                state.annotatedSeq = `>${genome.header}\n${formatSequence(annotated)}`;
+                state.logText = log;
+                state.genomeHeader = genome.header;
+                state.matches = matches;
+                state.hasOverlap = hasOverlap;
+                state.isProcessing = false;
+                render();
+                
+                setTimeout(() => {
+                    const canvas = document.getElementById('geneModelCanvas');
+                    if (canvas && matches.length > 0) {
+                        drawGeneModel(canvas, matches, genome.header, state.labelOption);
+                    }
+                }, 50);
+            }, 100);
+        }
+
+        function downloadFile(content, filename) {
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+                    <div class="max-w-6xl mx-auto">
+                        <div class="bg-white rounded-lg shadow-xl p-8">
+			<div class="mb-6">
+   				 <div class="flex items-center gap-3">
+                                <svg class="w-10 h-10" viewBox="0 0 640 640" fill="#1f618d" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M480 64C497.7 64 512 78.3 512 96C512 153.8 487.6 200.8 454.6 240.5C430.5 269.4 400.8 295.6 371 320C400.8 344.5 430.5 370.6 454.6 399.5C487.6 439.1 512 486.2 512 544C512 561.7 497.7 576 480 576C462.3 576 448 561.7 448 544L192 544C192 561.7 177.7 576 160 576C142.3 576 128 561.7 128 544C128 486.2 152.4 439.2 185.4 399.5C209.5 370.6 239.2 344.5 269 320C239.2 295.5 209.5 269.4 185.4 240.5C152.4 200.8 128 153.8 128 96C128 78.3 142.3 64 160 64C177.7 64 192 78.3 192 96L448 96C448 78.3 462.3 64 480 64zM411.5 448L228.6 448C220.4 458.5 213.5 469.1 208 480L432.2 480C426.6 469.1 419.7 458.5 411.6 448zM366 400C351.7 387 336.2 374.2 320 361C303.8 374.1 288.3 387 274 400L366 400zM228.5 192L411.4 192C419.6 181.5 426.5 170.9 432 160L207.9 160C213.5 170.9 220.4 181.5 228.5 192zM274 240C288.3 253 303.8 265.8 320 279C336.2 265.9 351.7 253 366 240L274 240z"/>
+                                </svg>
+       			 <h1 class="text-3xl font-bold text-gray-800">cDNA to Genome Aligner</h1>
+    				</div>
+   				 <p class="text-sm text-gray-600 mt-2">
+    				    For instructions, visit <a href="https://cat-bounce.com/" class="text-blue-600 hover:underline" 						target="_blank">this page</a>.
+  					  </p>
+				</div>
+
+                            <div class="grid md:grid-cols-2 gap-6 mb-6">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        cDNA FASTA File
+                                    </label>
+                                    <input
+                                        type="file"
+                                        accept=".fasta,.fa,.txt"
+                                        id="cdnaInput"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                    ${state.cdnaFile ? `<p class="text-sm text-green-600 mt-1">✓ ${state.cdnaFile.name}</p>` : ''}
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Genomic FASTA File
+                                    </label>
+                                    <input
+                                        type="file"
+                                        accept=".fasta,.fa,.txt"
+                                        id="genomeInput"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                    ${state.genomeFile ? `<p class="text-sm text-green-600 mt-1">✓ ${state.genomeFile.name}</p>` : ''}
+                                </div>
+                            </div>
+
+                            <div class="grid md:grid-cols-2 gap-6 mb-6">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Max Gaps
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value="${state.maxGaps}"
+                                        id="maxGaps"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Max Mismatches
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value="${state.maxMismatches}"
+                                        id="maxMismatches"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                </div>
+                            </div>
+
+                            <div class="grid md:grid-cols-2 gap-6 mb-6">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Minimum Alignment Length (bp)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value="${state.minAlignmentLen}"
+                                        id="minAlignmentLen"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label class="flex items-center space-x-2 text-sm font-medium text-gray-700 h-full pt-8">
+                                        <input
+                                            type="checkbox"
+                                            id="onlyMajority"
+                                            ${state.onlyMajority ? 'checked' : ''}
+                                            class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                                        />
+                                        <span>Only Majority Orientation</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <button
+                                id="alignButton"
+                                ${!state.cdnaFile || !state.genomeFile || state.isProcessing ? 'disabled' : ''}
+                                class="w-full text-white py-3 px-6 rounded-md font-medium disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                                style="background-color: #1f618d"
+                                onmouseover="if(!this.disabled) this.style.backgroundColor='#174a6e'"
+                                onmouseout="if(!this.disabled) this.style.backgroundColor='#1f618d'"
+                            >
+                                ${state.isProcessing ? 'Processing...' : 'Align Sequences'}
+                            </button>
+
+                            ${state.matches.length > 0 ? `
+                                <div class="mt-8 space-y-6">
+                                    <div class="border border-gray-300 rounded-lg p-4 bg-gray-50">
+                                        <div class="flex justify-between items-center mb-3">
+                                            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                </svg>
+                                                Gene Model
+                                            </h2>
+                                        </div>
+                                        <div class="mb-4 flex gap-4 items-center flex-wrap">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Label Options:</label>
+                                                <select id="labelOption" class="px-3 py-1 border border-gray-300 rounded-md text-sm">
+                                                    <option value="both" ${state.labelOption === 'both' ? 'selected' : ''}>Number exons and positions</option>
+                                                    <option value="exons" ${state.labelOption === 'exons' ? 'selected' : ''}>Number exons only</option>
+                                                    <option value="positions" ${state.labelOption === 'positions' ? 'selected' : ''}>Number positions only</option>
+                                                    <option value="none" ${state.labelOption === 'none' ? 'selected' : ''}>No numbers</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Format:</label>
+                                                <select id="imageFormat" class="px-3 py-1 border border-gray-300 rounded-md text-sm">
+                                                    <option value="png" ${state.imageFormat === 'png' ? 'selected' : ''}>PNG</option>
+                                                    <option value="jpeg" ${state.imageFormat === 'jpeg' ? 'selected' : ''}>JPEG</option>
+                                                </select>
+                                            </div>
+                                            <button
+                                                id="downloadImage"
+                                                class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                                            >
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                </svg>
+                                                Download Image
+                                            </button>
+                                        </div>
+                                        <div class="bg-white p-4 rounded border border-gray-200 overflow-x-auto">
+                                            <canvas id="geneModelCanvas" width="1200" height="200"></canvas>
+                                        </div>
+                                    </div>
+
+                                    <div class="border border-gray-300 rounded-lg p-4 bg-gray-50">
+                                        <div class="flex justify-between items-center mb-3">
+                                            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                </svg>
+                                                Annotated Genome Sequence
+                                            </h2>
+                                            <button
+                                                id="downloadFasta"
+                                                class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                                            >
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                </svg>
+                                                Download FASTA
+                                            </button>
+                                        </div>
+                                        <pre class="text-xs font-mono bg-white p-4 rounded border border-gray-200 overflow-x-auto max-h-64">${state.annotatedSeq}</pre>
+                                    </div>
+
+                                    <div class="border border-gray-300 rounded-lg p-4 bg-gray-50">
+                                        <div class="flex justify-between items-center mb-3">
+                                            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                </svg>
+                                                Alignment Log
+                                                ${state.hasOverlap ? '<span class="ml-2 px-2 py-1 bg-yellow-200 text-yellow-800 text-xs rounded">⚠ Overlaps Detected</span>' : ''}
+                                            </h2>
+                                            <button
+                                                id="downloadLog"
+                                                class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                                            >
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                </svg>
+                                                Download Log
+                                            </button>
+                                        </div>
+                                        <pre class="text-xs font-mono bg-white p-4 rounded border border-gray-200 overflow-x-auto max-h-64">${state.logText}</pre>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Add event listeners
+            const cdnaInput = document.getElementById('cdnaInput');
+            const genomeInput = document.getElementById('genomeInput');
+            const maxGapsInput = document.getElementById('maxGaps');
+            const maxMismatchesInput = document.getElementById('maxMismatches');
+            const minAlignmentLenInput = document.getElementById('minAlignmentLen');
+            const onlyMajorityInput = document.getElementById('onlyMajority');
+            const alignButton = document.getElementById('alignButton');
+
+            if (cdnaInput) cdnaInput.addEventListener('change', (e) => handleFileRead(e.target.files[0], 'cdnaFile'));
+            if (genomeInput) genomeInput.addEventListener('change', (e) => handleFileRead(e.target.files[0], 'genomeFile'));
+            if (maxGapsInput) maxGapsInput.addEventListener('change', (e) => { state.maxGaps = parseInt(e.target.value); });
+            if (maxMismatchesInput) maxMismatchesInput.addEventListener('change', (e) => { state.maxMismatches = parseInt(e.target.value); });
+            if (minAlignmentLenInput) minAlignmentLenInput.addEventListener('change', (e) => { state.minAlignmentLen = parseInt(e.target.value); });
+            if (onlyMajorityInput) onlyMajorityInput.addEventListener('change', (e) => { state.onlyMajority = e.target.checked; });
+            if (alignButton) alignButton.addEventListener('click', processAlignment);
+
+            const downloadFasta = document.getElementById('downloadFasta');
+            const downloadLog = document.getElementById('downloadLog');
+            const downloadImage = document.getElementById('downloadImage');
+            const labelOption = document.getElementById('labelOption');
+            const imageFormat = document.getElementById('imageFormat');
+            
+            if (downloadFasta) downloadFasta.addEventListener('click', () => downloadFile(state.annotatedSeq, 'annotated_genome.fasta'));
+            if (downloadLog) downloadLog.addEventListener('click', () => downloadFile(state.logText, 'alignment_log.txt'));
+            if (downloadImage) downloadImage.addEventListener('click', () => downloadCanvas(state.imageFormat));
+            
+            if (labelOption) {
+                labelOption.addEventListener('change', (e) => {
+                    state.labelOption = e.target.value;
+                    const canvas = document.getElementById('geneModelCanvas');
+                    if (canvas && state.matches.length > 0) {
+                        drawGeneModel(canvas, state.matches, state.genomeHeader, state.labelOption);
+                    }
+                });
+            }
+            
+            if (imageFormat) {
+                imageFormat.addEventListener('change', (e) => {
+                    state.imageFormat = e.target.value;
+                });
+            }
+        }
+
+        // Initial render
+        render();
+    </script>
+</body>
+</html>
