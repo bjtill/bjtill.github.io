@@ -1,0 +1,20 @@
+Origin,Accession Name,Name,Code,Short_Read_Fq_R1(location),Short_Read_Fq_R2(location),Short_Read_BAM_ASM31385v2(NOTE:Suppressed),Short_Read_BAM(Cavendish_Baxijiao_AAA_T2T_unresolveddiploid),Mutagen,No of explants,Suckers,Note,DNA Code,NGS Code,Large deletion analyses using CNV bin-by-sam completed,NGS Code,Depth,in vitro re-establishment
+PBGL-Seib,Grande Naine,Mutant - gamma,30GY-01,S30GY_01_1,S30GY_01_2,*name_rmrg.bam(BT10Tb),NotDone,gamma 30Gy,1,Y,,1,30GY-01,X,323561,30.6x,
+PBGL-Seib,Grande Naine,Mutant - gamma,40GY-9,S40GY_9_1.fq.gz,MISSING?,NotDone,NotDone,gamma 40Gy,1,Y,,2,40GY-9,X,323559,30.6x,
+PBGL-Seib,Grande Naine,Mutant - gamma,40GY-16,S40GY_16_1.fq.gz,S40GY_16_2.fq.gz,*name_rmrg.bam(BT10Tb),NotDone,gamma 40Gy,1,Y,,3,40GY-16,X,323560,50.8x,
+PBGL-Seib,Grande Naine,Mutant - gamma,40GY-7,S40GY_7_R1.fq.gz(BT10Tb),S40GY_7_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,gamma 40Gy,2,Y,,4,40GY-7,X,323558,72.1x,
+PBGL-Seib,Grande Naine,Mutant - EMS,EMS170,EMS170_R1.fq.gz(BT10Tb),EMS170_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,EMS,3,-,,7,EMS170,-,-,-,
+PBGL-Seib,Grande Naine,Mutant - EMS,EMS227,EMS227_R1.fq.gz(BT10Tb),EMS227_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,EMS,4,Y,high multiplication rate,9,EMS227,-,323563,55.5x,X
+PBGL-Seib,Grande Naine,Mutant - EMS,EMS130,EMS130_R1.fq.gz(BT10Tb),EMS130_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,EMS,3,Y,,10,EMS130,-,-,-,
+PBGL-Seib,Grande Naine,Mutant - EMS,EMS106,EMS106_R1.fq.gz(BT10Tb),EMS106_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,EMS,6,Y,,11,EMS106,-,-,-,
+PBGL-Seib,Grande Naine,Mutant - EMS,EMS181,EMS181_R1.fq.gz(BT10Tb),EMS181_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,EMS,3,Y,,12,EMS181,-,-,-,
+PBGL-Seib,Grande Naine,Mutant - EMS,EMS190,EMS190_R1.fq.gz(BT10Tb),EMS190_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,EMS,3,Y,,14,EMS190,-,-,-,
+PBGL-Seib,Grande Naine,Mutant - EMS,EMS197,EMS197_R1.fq.gz(BT10Tb),EMS197_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,EMS,9,Y,,15,EMS197,-,-,-,
+PBGL-Seib,Grande Naine,Mutant - EMS,EMS129,EMS129_R1.fq.gz(BT10Tb),EMS129_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,EMS,,,,16,EMS129,-,-,-,
+PBGL-Seib,Grande Naine,Mutant - EMS,EMS114,EMS114_R1.fq.gz(BT10Tb),EMS114_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,EMS,2,Y,high multiplication rate,18,EMS114,-,323562,54.7x,X
+Philipines,Grande Naine,,PhOP001,PhOP001_R1.fq.gz(BT10Tb),PhOP001_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,control,2,Y,not for use,19,PhOP001,X,-,-,
+Philipines,Grande Naine,Mutant - gamma,Ph457,Ph457_R1.fq.gz(BT10Tb),Ph457_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,gamma,4,-,not for use,20,Ph457,X,-,-,
+Philipines,Grande Naine,Mutant - gamma,Ph459,Ph459_R1.fq.gz(BT10Tb),Ph459_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,gamma,1,,not for use,21,Ph459,X,-,-,
+Philipines,Grande Naine,Mutant - gamma,Ph518,Ph518_R1.fq.gz(BT10Tb),Ph518_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,gamma,5,Y,not for use,22,Ph518,X,-,-,
+Philipines,Grande Naine,Mutant - gamma,Ph613,Ph613_R1.fq.gz(BT10Tb),Ph623_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,gamma,4,Y,not for use,23,Ph613,X,-,-,
+ITC,Grande Naine,SA_GN,SA_GN,SA_GN_R1.fq.gz(BT10Tb),SA_GN_R2.fq.gz(BT10Tb),*name_rmrg.bam(BT10Tb),NotDone,,,,,,SA_GN,X ,322116,10.3x,

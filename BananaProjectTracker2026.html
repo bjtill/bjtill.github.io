@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title>Mutant Bananas!</title><link rel="icon" href=./Flyvende_Banan.svg></head> 
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   
+    <script src="papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        .file-container {
+            background: #e9ecef;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .search-container {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .search-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+        label {
+            min-width: 100px;
+            font-weight: bold;
+        }
+        select, input[type="text"] {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background: #007bff;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+        .no-results {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .error {
+            color: red;
+            padding: 10px;
+            background: #ffe6e6;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .success {
+            color: green;
+            padding: 10px;
+            background: #e6ffe6;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .debug {
+            color: #666;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .column-checkbox {
+            display: inline-block;
+            margin-right: 20px;
+            margin-bottom: 10px;
+        }
+        .column-checkbox input {
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>MUTANT BANANA PROJECT TRACKER</h1>
+    <h2>Check the progress of samples and the location of files</h2>
+    <div class="file-container">
+        <label style="display: block; margin-bottom: 5px; font-weight: bold;">Data Loading Status:</label>
+        <div id="status"></div>
+    </div>
+
+    <div id="error"></div>
+    
+    <div class="search-container" id="searchSection" style="display: none;">
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Select Columns to Search:</label>
+            <div id="columnSelector"></div>
+        </div>
+        
+        <div id="searchFields"></div>
+        
+        <button onclick="searchCSV()">Search</button>
+        <button onclick="clearSearch()" style="background: #6c757d; margin-left: 10px;">Clear</button>
+        <button onclick="showAll()" style="background: #28a745; margin-left: 10px;">Show All</button>
+        
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Download:</label>
+            <button onclick="downloadCSV('all')" style="background: #17a2b8;">Download All Data</button>
+            <button onclick="downloadCSV('filtered')" style="background: #ffc107; color: #000; margin-left: 10px;">Download Search Results</button>
+        </div>
+    </div>
+    
+    <div id="results"></div>
+
+    <script>
+        let csvData = [];
+        let headers = [];
+        let selectedColumns = [];
+        let currentFilteredData = [];
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if Papa Parse is loaded
+            if (typeof Papa === 'undefined') {
+                document.getElementById('error').innerHTML = 
+                    '<div class="error">Error: PapaParse library failed to load. Please check that papaparse.min.js is in the same directory.</div>';
+                return;
+            }
+            
+            // Auto-load data2.csv from the same directory
+            loadCSVFromServer('MutantBananaProjectTracker2026.csv');
+        });
+
+        function loadCSVFromServer(filename) {
+            document.getElementById('status').innerHTML = '<div class="debug">Loading ' + filename + ' from server...</div>';
+            
+            fetch(filename)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Could not load ' + filename + '. Make sure the file exists in the same directory.');
+                    }
+                    return response.text();
+                })
+                .then(csvText => {
+                    Papa.parse(csvText, {
+                        complete: function(results) {
+                            console.log('Parse results:', results);
+                            
+                            if (results.errors && results.errors.length > 0) {
+                                document.getElementById('error').innerHTML = 
+                                    '<div class="error">Parse errors: ' + JSON.stringify(results.errors) + '</div>';
+                            }
+                            
+                            if (results.data && results.data.length > 0) {
+                                const filteredData = results.data.filter(row => 
+                                    row.some(cell => cell && cell.trim() !== '')
+                                );
+                                
+                                if (filteredData.length > 0) {
+                                    headers = filteredData[0];
+                                    csvData = filteredData.slice(1);
+                                    
+                                    document.getElementById('status').innerHTML = 
+                                        '<div class="success">✓ Loaded ' + csvData.length + ' rows with ' + headers.length + ' columns from ' + filename + '</div>';
+                                    
+                                    populateColumnSelector();
+                                    document.getElementById('searchSection').style.display = 'block';
+                                    document.getElementById('error').innerHTML = '';
+                                    
+                                    showAll();
+                                } else {
+                                    document.getElementById('error').innerHTML = 
+                                        '<div class="error">No data found in CSV file</div>';
+                                }
+                            } else {
+                                document.getElementById('error').innerHTML = 
+                                    '<div class="error">Could not read CSV file</div>';
+                            }
+                        },
+                        error: function(error) {
+                            console.error('Parse error:', error);
+                            document.getElementById('error').innerHTML = 
+                                '<div class="error">Error parsing CSV: ' + error.message + '</div>';
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error('Fetch error:', error);
+                    document.getElementById('status').innerHTML = 
+                        '<div class="error">' + error.message + '</div>';
+                });
+        }
+
+        function populateColumnSelector() {
+            const container = document.getElementById('columnSelector');
+            container.innerHTML = '';
+            
+            headers.forEach((header, index) => {
+                const label = document.createElement('label');
+                label.className = 'column-checkbox';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = 'col-' + index;
+                checkbox.value = index;
+                checkbox.addEventListener('change', updateSearchFields);
+                
+                label.appendChild(checkbox);
+                label.appendChild(document.createTextNode(header));
+                container.appendChild(label);
+            });
+        }
+
+        function updateSearchFields() {
+            selectedColumns = [];
+            headers.forEach((header, index) => {
+                const checkbox = document.getElementById('col-' + index);
+                if (checkbox && checkbox.checked) {
+                    selectedColumns.push(index);
+                }
+            });
+            
+            populateSearchFields();
+        }
+
+        function populateSearchFields() {
+            const container = document.getElementById('searchFields');
+            container.innerHTML = '';
+            
+            if (selectedColumns.length === 0) {
+                container.innerHTML = '<div style="color: #666; padding: 10px;">Select columns above to create search fields</div>';
+                return;
+            }
+            
+            selectedColumns.forEach(colIndex => {
+                const uniqueValues = [...new Set(csvData.map(row => row[colIndex]))].filter(v => v && v.trim()).sort();
+                
+                const div = document.createElement('div');
+                div.className = 'search-row';
+                
+                const label = document.createElement('label');
+                label.textContent = headers[colIndex] + ':';
+                
+                const select = document.createElement('select');
+                select.id = 'dropdown-' + colIndex;
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = '-- Select or type below --';
+                select.appendChild(defaultOption);
+                
+                uniqueValues.forEach(value => {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = value;
+                    select.appendChild(option);
+                });
+                
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.id = 'text-' + colIndex;
+                input.placeholder = 'Or type to search...';
+                
+                div.appendChild(label);
+                div.appendChild(select);
+                div.appendChild(input);
+                container.appendChild(div);
+            });
+        }
+
+        function searchCSV() {
+            if (selectedColumns.length === 0) {
+                document.getElementById('results').innerHTML = '<div class="no-results">Please select at least one column to search.</div>';
+                return;
+            }
+            
+            let filtered = csvData.filter(row => {
+                let match = true;
+                
+                for (let colIndex of selectedColumns) {
+                    const textVal = document.getElementById('text-' + colIndex).value.trim();
+                    const dropdownVal = document.getElementById('dropdown-' + colIndex).value;
+                    const searchVal = textVal || dropdownVal;
+                    
+                    if (searchVal && row[colIndex]) {
+                        if (row[colIndex].toLowerCase().indexOf(searchVal.toLowerCase()) === -1) {
+                            match = false;
+                            break;
+                        }
+                    } else if (searchVal && !row[colIndex]) {
+                        match = false;
+                        break;
+                    }
+                }
+                
+                return match;
+            });
+
+            currentFilteredData = filtered;
+            displayResults(filtered);
+        }
+
+        function showAll() {
+            currentFilteredData = csvData;
+            displayResults(csvData);
+        }
+
+        function displayResults(data) {
+            const resultsDiv = document.getElementById('results');
+            
+            if (data.length === 0) {
+                resultsDiv.innerHTML = '<div class="no-results">No matching results found.</div>';
+                return;
+            }
+
+            let html = '<table><thead><tr>';
+            headers.forEach(header => {
+                html += `<th>${header}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+
+            data.forEach(row => {
+                html += '<tr>';
+                headers.forEach((header, i) => {
+                    html += `<td>${row[i] || ''}</td>`;
+                });
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            html += '<div class="debug">Showing ' + data.length + ' of ' + csvData.length + ' total rows</div>';
+            resultsDiv.innerHTML = html;
+        }
+
+        function clearSearch() {
+            selectedColumns.forEach(colIndex => {
+                const dropdown = document.getElementById('dropdown-' + colIndex);
+                const textInput = document.getElementById('text-' + colIndex);
+                if (dropdown) dropdown.value = '';
+                if (textInput) textInput.value = '';
+            });
+            
+            document.getElementById('results').innerHTML = '';
+        }
+
+        function downloadCSV(type) {
+            let dataToDownload;
+            let filename;
+            
+            if (type === 'all') {
+                dataToDownload = csvData;
+                filename = 'all_data.csv';
+            } else {
+                if (currentFilteredData.length === 0) {
+                    alert('No search results to download. Please perform a search first.');
+                    return;
+                }
+                dataToDownload = currentFilteredData;
+                filename = 'search_results.csv';
+            }
+            
+            // Convert data back to CSV format
+            let csvContent = '';
+            
+            // Add headers
+            csvContent += headers.map(h => '"' + h + '"').join(',') + '\n';
+            
+            // Add data rows
+            dataToDownload.forEach(row => {
+                csvContent += row.map(cell => {
+                    // Escape quotes and wrap in quotes if necessary
+                    const cellStr = cell || '';
+                    if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+                        return '"' + cellStr.replace(/"/g, '""') + '"';
+                    }
+                    return cellStr;
+                }).join(',') + '\n';
+            });
+            
+            // Create blob and download
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
